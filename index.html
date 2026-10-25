@@ -48,7 +48,7 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : "id-" + Date.now() 
 const now = () => new Date().toISOString();
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate = v => v ? new Date(v + (String(v).length===10 ? "T12:00:00" : "")).toLocaleDateString() : "No date set";
-const blankState = () => ({version:1,createdAt:now(),updatedAt:now(),students:[],homework:[],mk:[],archives:[],images:[]});
+const blankState = () => ({version:2,createdAt:now(),updatedAt:now(),students:[],homework:[],mk:[],archives:[],chatLogs:[],summaries:[],images:[]});
 let state = blankState(), db = null, activeView = "dashboard", searchTerm = "";
 
 function openDB(){
@@ -88,7 +88,7 @@ const viewInfo = {
  students:["Student Records","Character profiles, personality, relationships and continuity notes."],
  homework:["Assignment Board","Track who has been assigned what, and what still needs doing."],
  mk:["Monkey Knowledge","Track each student’s current classroom MK total."],
- archives:["Chat & Timeline Archives","Save conversation excerpts, decisions and events for continuity."],
+ archives:["Chat & Timeline Archives","Keep full chat transcripts, important summaries, and timeline events together."],
  gallery:["Image Gallery","Keep reference images connected to characters, events and chapters."],
  backup:["Backup & Restore","Export the entire database, including uploaded image data, or restore a backup."]
 };
@@ -104,20 +104,21 @@ function renderDashboard(){
  const pending=state.homework.filter(x=>x.status!=="Completed").length;
  const unknownMK=state.mk.length===0;
  const recent=[...state.archives].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,4);
+ const totalConversationRecords=(state.chatLogs||[]).length+(state.summaries||[]).length+state.archives.length;
  return `<div class="stats">
  <div class="stat"><div class="label">STUDENTS</div><div class="num">${state.students.length}</div><div class="detail">Profiles in the database</div></div>
  <div class="stat"><div class="label">OPEN ASSIGNMENTS</div><div class="num">${pending}</div><div class="detail">Not marked completed</div></div>
  <div class="stat"><div class="label">STUDENT MK TOTALS</div><div class="num">${state.mk.length}</div><div class="detail">${unknownMK?"No totals entered yet":"Current totals only"}</div></div>
- <div class="stat"><div class="label">ARCHIVE ENTRIES</div><div class="num">${state.archives.length}</div><div class="detail">Chats, decisions and events</div></div></div>
+ <div class="stat"><div class="label">HISTORY RECORDS</div><div class="num">${totalConversationRecords}</div><div class="detail">Full chats, summaries & events</div></div></div>
  <div class="notice">MK rule: points are awarded manually by the teacher. The database tracks only each student’s current total; it never awards points automatically.</div>
- <section class="panel"><div class="panel-head"><h3>🔎 Search the Academy</h3></div><div class="searchbar"><input id="globalSearch" placeholder="Search names, assignments, chats, events, notes…" value="${esc(searchTerm)}"><button id="clearSearch">Clear</button></div><p class="muted small">Search covers student profiles, homework, MK entries and archive text. Gallery captions are included too.</p>${searchTerm?renderSearchResults():""}</section>
+ <section class="panel"><div class="panel-head"><h3>🔎 Search the Academy</h3></div><div class="searchbar"><input id="globalSearch" placeholder="Search names, assignments, chats, events, notes…" value="${esc(searchTerm)}"><button id="clearSearch">Clear</button></div><p class="muted small">Search covers student profiles, homework, MK, full chat logs, summaries, timeline entries and gallery captions.</p>${searchTerm?renderSearchResults():""}</section>
  <section class="panel"><div class="panel-head"><h3>👥 Student roster</h3>${addButton("students","Add student")}</div><div class="cards">${state.students.slice(0,6).map(s=>card(s.name,`${tag(s.className||"Class not recorded",true)}<p>${esc(s.personality||"No personality notes yet.")}</p>`,editButton("students",s.id))).join("")||empty("No student profiles yet.")}</div></section>
  <section class="panel"><div class="panel-head"><h3>🗓️ Recent archive entries</h3><button data-goto="archives">Open archives</button></div><div class="cards">${recent.map(a=>card(a.title,`${tag(a.type||"Note")}<p>${esc((a.content||"").slice(0,220))}${(a.content||"").length>220?"…":""}</p><p class="small">${esc(fmtDate(a.date))}</p>`,editButton("archives",a.id))).join("")||empty("Nothing archived yet. Add important conversations, decisions and story events as you go.")}</div></section>`;
 }
 function renderSearchResults(){
  const all=[];
- for(const [type,arr] of [["students",state.students],["homework",state.homework],["mk",state.mk],["archives",state.archives],["images",state.images]]) for(const x of arr) if(matches(x)) all.push({type,x});
- return `<div class="cards">${all.slice(0,30).map(({type,x})=>card(x.name||x.title||x.character||x.studentName||"Untitled",`${tag(type)}<p>${esc((x.notes||x.content||x.description||x.assignment||x.personality||"").slice(0,180))}</p>`,`<button class="smallbtn" data-edit="${type}" data-id="${esc(x.id)}">Open / edit</button>`)).join("")||empty("No matching records found.")}</div>`;
+ for(const [type,arr] of [["students",state.students],["homework",state.homework],["mk",state.mk],["chatLogs",state.chatLogs||[]],["summaries",state.summaries||[]],["archives",state.archives],["images",state.images]]) for(const x of arr) if(matches(x)) all.push({type,x});
+ return `<div class="cards">${all.slice(0,30).map(({type,x})=>card(x.name||x.title||x.character||x.studentName||"Untitled",`${tag(type)}<p>${esc((x.notes||x.content||x.messages||x.summary||x.description||x.assignment||x.personality||"").slice(0,180))}</p>`,`<button class="smallbtn" data-edit="${type}" data-id="${esc(x.id)}">Open / edit</button>`)).join("")||empty("No matching records found.")}</div>`;
 }
 function renderStudents(){const arr=state.students.filter(matches);return `<section class="panel"><div class="panel-head"><h3>Student roster</h3>${addButton("students","Add student")}</div><div class="searchbar"><input id="listSearch" placeholder="Filter student profiles…" value="${esc(searchTerm)}"></div><div class="cards">${arr.map(s=>card(s.name,`${tag(s.role||"Student",true)}${tag(s.className||"Class not recorded")}<p>${esc(s.personality||"No personality notes yet.")}</p><p><b>Relationships:</b> ${esc(s.relationships||"Not recorded")}</p><p>${esc(s.notes||"")}</p>`,editButton("students",s.id)+deleteButton("students",s.id))).join("")||empty("No matching students.")}</div></section>`;}
 function renderHomework(){const arr=state.homework.filter(matches).sort((a,b)=>(a.dueDate||"9999").localeCompare(b.dueDate||"9999"));return `<section class="panel"><div class="panel-head"><h3>Assignment board</h3>${addButton("homework","Add assignment")}</div><div class="searchbar"><input id="listSearch" placeholder="Filter assignments…" value="${esc(searchTerm)}"><select id="statusFilter"><option value="">All statuses</option>${["Not started","In progress","Completed","Overdue"].map(v=>`<option>${v}</option>`).join("")}</select></div><div class="cards">${arr.filter(x=>!$("#statusFilter")?.value||x.status===$("#statusFilter").value).map(x=>card(x.title||"Untitled assignment",`${tag(x.subject||"Subject not recorded",true)}${tag(x.status||"Not started")}<p><b>Assigned to:</b> ${esc(x.studentName||"Not specified")}</p><p><b>Due:</b> ${esc(fmtDate(x.dueDate))}</p><p>${esc(x.description||"")}</p><p><b>Grade / feedback:</b> ${esc(x.grade||"Not recorded")} ${esc(x.feedback||"")}</p>`,editButton("homework",x.id)+deleteButton("homework",x.id))).join("")||empty("No assignments yet. Add an assignment when it becomes established in the story.")}</div></section>`;}
@@ -129,9 +130,16 @@ function renderMK(){
  <div class="stats"><div class="stat"><div class="label">CLASS TOTAL</div><div class="num">${total}</div><div class="detail">MK points across all students</div></div><div class="stat"><div class="label">STUDENTS TRACKED</div><div class="num">${arr.length}</div><div class="detail">Current totals only</div></div></div>
  <div class="cards">${arr.map(x=>card(x.studentName||"Unnamed student",`<p class="muted">Current Monkey Knowledge</p><div class="num" style="font-size:38px;font-weight:850;color:var(--gold);margin:8px 0">${Math.max(0,Number(x.total)||0)} <span style="font-size:15px">MK</span></div>`, `<button class="primary" data-award-mk="${esc(x.id)}">＋ Award +1 MK</button>${editButton("mk",x.id)}`)).join("")||empty("No student totals yet.")}</div></section>`;
 }
-function renderArchives(){const arr=state.archives.filter(matches).sort((a,b)=>(b.date||"").localeCompare(a.date||""));return `<section class="panel"><div class="panel-head"><h3>Conversation & event archive</h3>${addButton("archives","Add archive entry")}</div><div class="searchbar"><input id="listSearch" placeholder="Search archive entries…" value="${esc(searchTerm)}"></div><div class="cards">${arr.map(x=>card(x.title||"Untitled entry",`${tag(x.type||"Note",true)}${tag(fmtDate(x.date))}${x.characters?tag(x.characters):""}<p>${esc(x.content||"")}</p><p class="small muted">${esc(x.source||"No source reference")}</p>`,editButton("archives",x.id)+deleteButton("archives",x.id))).join("")||empty("Archive important chat excerpts, story events, relationship changes and canon decisions here.")}</div></section>`;}
+function renderArchives(){
+ const logs=(state.chatLogs||[]).filter(matches).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+ const summaries=(state.summaries||[]).filter(matches).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+ const events=state.archives.filter(matches).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+ return `<section class="panel"><div class="panel-head"><div><h3>💬 Full chat logs</h3><p class="muted small">Save complete conversations message by message. Nothing is imported automatically; paste the transcript you want to preserve.</p></div>${addButton("chatLogs","Add full chat log")}</div><div class="searchbar"><input id="listSearch" placeholder="Search all history…" value="${esc(searchTerm)}"></div><div class="cards">${logs.map(x=>card(x.title||"Untitled chat",`${tag(fmtDate(x.date),true)}${x.characters?tag(x.characters):""}<details><summary style="cursor:pointer;color:var(--blue);margin:8px 0">Read full transcript (${(x.messages||"").length.toLocaleString()} characters)</summary><p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(x.messages||"")}</p></details><p class="small muted">${esc(x.source||"No source reference")}</p>`,editButton("chatLogs",x.id)+deleteButton("chatLogs",x.id))).join("")||empty("No full chat logs yet. Add a conversation and paste the messages into the transcript field.")}</div></section>
+ <section class="panel"><div class="panel-head"><div><h3>🧠 Important conversation summaries</h3><p class="muted small">Capture what matters for future continuity without replacing the original transcript.</p></div>${addButton("summaries","Add summary")}</div><div class="cards">${summaries.map(x=>card(x.title||"Untitled summary",`${tag(fmtDate(x.date),true)}${x.characters?tag(x.characters):""}<p><b>Summary</b><br>${esc(x.summary||"")}</p><p><b>Important details</b><br>${esc(x.importantDetails||"")}</p><p><b>Canon / continuity changes</b><br>${esc(x.canonChanges||"")}</p><p><b>Relationship changes</b><br>${esc(x.relationships||"")}</p><p class="small muted">${esc(x.source||"No source reference")}</p>`,editButton("summaries",x.id)+deleteButton("summaries",x.id))).join("")||empty("No summaries yet. Add the key facts, decisions, and character changes worth remembering.")}</div></section>
+ <section class="panel"><div class="panel-head"><div><h3>🗂️ Timeline & canon events</h3><p class="muted small">Use this for standalone events, decisions, relationship milestones, or class notes.</p></div>${addButton("archives","Add timeline event")}</div><div class="cards">${events.map(x=>card(x.title||"Untitled entry",`${tag(x.type||"Note",true)}${tag(fmtDate(x.date))}${x.characters?tag(x.characters):""}<p>${esc(x.content||"")}</p><p class="small muted">${esc(x.source||"No source reference")}</p>`,editButton("archives",x.id)+deleteButton("archives",x.id))).join("")||empty("No timeline events yet.")}</div></section>`;
+}
 function renderGallery(){const arr=state.images.filter(matches);return `<section class="panel"><div class="panel-head"><h3>Image gallery</h3>${addButton("images","Add image")}</div><p class="muted small">Images are stored inside the local database and included in JSON backups. Very large images can make backups large too.</p><div class="cards">${arr.map(x=>`<article class="record">${x.dataUrl?`<img class="gallery-img" src="${x.dataUrl}" alt="${esc(x.title)}">`:`<div class="empty">Image data unavailable</div>`}<h4 style="margin-top:10px">${esc(x.title||"Untitled image")}</h4>${tag(x.category||"Reference")}${x.character?tag(x.character,true):""}<p>${esc(x.caption||"")}</p><p class="small muted">${esc(x.fileName||"")}</p><div class="record-actions">${editButton("images",x.id)}${deleteButton("images",x.id)}${x.dataUrl?`<a href="${x.dataUrl}" download="${esc(x.fileName||"academy-image")}" style="color:var(--blue);align-self:center">Download image</a>`:""}</div></article>`).join("")||empty("No images yet. Upload portraits, screenshots and event artwork.")}</div></section>`;}
-function renderBackup(){return `<section class="panel"><div class="panel-head"><h3>💾 Backup & restore</h3></div><div class="notice">Your browser storage is not the same as a permanent file. Export a backup regularly and keep a copy somewhere safe. Anyone with access to an exported backup can read its contents.</div><div class="cards"><article class="record"><h4>Export full backup</h4><p>Creates one JSON file containing student profiles, assignments, MK records, archives and uploaded images.</p><button class="primary" id="exportBackup">Export backup (.json)</button></article><article class="record"><h4>Restore a backup</h4><p>Choose a backup previously exported by this app. Restoring replaces the current database, so export your current data first if you want to keep it.</p><label for="restoreFile">Backup JSON file</label><input type="file" id="restoreFile" accept=".json,application/json"><label><input type="checkbox" id="confirmRestore" style="width:auto"> I understand this replaces the current database.</label><button class="danger" id="restoreBackup">Restore backup</button></article></div><div class="panel" style="margin-top:14px;background:#172233"><h3>Database status</h3><p class="muted">Last updated: ${esc(new Date(state.updatedAt||Date.now()).toLocaleString())}</p><p class="muted">Stored records: ${state.students.length} students · ${state.homework.length} assignments · ${state.mk.length} MK entries · ${state.archives.length} archive entries · ${state.images.length} images</p><button id="seedData">Add missing starter profiles</button> <button class="danger" id="clearAll">Erase all local data</button></div></section>`;}
+function renderBackup(){return `<section class="panel"><div class="panel-head"><h3>💾 Backup & restore</h3></div><div class="notice">Your browser storage is not the same as a permanent file. Export a backup regularly and keep a copy somewhere safe. Anyone with access to an exported backup can read its contents.</div><div class="cards"><article class="record"><h4>Export full backup</h4><p>Creates one JSON file containing student profiles, assignments, MK records, full chat logs, important summaries, timeline entries and uploaded images.</p><button class="primary" id="exportBackup">Export backup (.json)</button></article><article class="record"><h4>Restore a backup</h4><p>Choose a backup previously exported by this app. Restoring replaces the current database, so export your current data first if you want to keep it.</p><label for="restoreFile">Backup JSON file</label><input type="file" id="restoreFile" accept=".json,application/json"><label><input type="checkbox" id="confirmRestore" style="width:auto"> I understand this replaces the current database.</label><button class="danger" id="restoreBackup">Restore backup</button></article></div><div class="panel" style="margin-top:14px;background:#172233"><h3>Database status</h3><p class="muted">Last updated: ${esc(new Date(state.updatedAt||Date.now()).toLocaleString())}</p><p class="muted">Stored records: ${state.students.length} students · ${state.homework.length} assignments · ${state.mk.length} MK entries · ${(state.chatLogs||[]).length} full chats · ${(state.summaries||[]).length} summaries · ${state.archives.length} timeline entries · ${state.images.length} images</p><button id="seedData">Add missing starter profiles</button> <button class="danger" id="clearAll">Erase all local data</button></div></section>`;}
 function render(){const root=$("#app");const fn={dashboard:renderDashboard,students:renderStudents,homework:renderHomework,mk:renderMK,archives:renderArchives,gallery:renderGallery,backup:renderBackup}[activeView];root.innerHTML=fn();wireDynamic();}
 function wireDynamic(){
  $("#globalSearch")?.addEventListener("input",e=>{searchTerm=e.target.value;const pos=e.target.selectionStart;render();const input=$("#globalSearch");if(input){input.focus();input.setSelectionRange(pos,pos);}});
@@ -146,18 +154,20 @@ function wireDynamic(){
 function openModal(type,id=null){
  const collection=type==="images"?"images":type;
  const item=id?state[collection].find(x=>x.id===id):null;
- const titles={students:"Student profile",homework:"Homework assignment",mk:"Monkey Knowledge record",archives:"Chat / timeline archive",images:"Gallery image"};
+ const titles={students:"Student profile",homework:"Homework assignment",mk:"Monkey Knowledge record",archives:"Timeline / canon event",chatLogs:"Full chat log",summaries:"Important conversation summary",images:"Gallery image"};
  const fields={
  students:[["name","Name","text",true],["role","Role","text"],["className","Class / group","text"],["personality","Personality & traits","textarea"],["relationships","Relationships","textarea"],["notes","Continuity notes","textarea"]],
  homework:[["title","Assignment title","text",true],["subject","Subject","text"],["studentName","Assigned student(s)","text"],["dueDate","Due date","date"],["status","Status","select",false,["Not started","In progress","Completed","Overdue"]],["description","Instructions / details","textarea"],["grade","Grade","text"],["feedback","Feedback","textarea"]],
  mk:[["studentName","Student name","text",true],["total","Current MK total","number",true]],
- archives:[["title","Title","text",true],["type","Entry type","select",false,["Chat excerpt","Story event","Canon decision","Relationship change","Class notes","Other"]],["date","Date","date"],["characters","Characters involved (comma-separated)","text"],["source","Source / conversation reference","text"],["content","Text / summary","textarea",true]],
+ archives:[["title","Title","text",true],["type","Entry type","select",false,["Story event","Canon decision","Relationship change","Class notes","Other"]],["date","Date","date"],["characters","Characters involved (comma-separated)","text"],["source","Source / conversation reference","text"],["content","Event details","textarea",true]],
+ chatLogs:[["title","Conversation title","text",true],["date","Conversation date","date"],["characters","Participants / characters involved","text"],["source","Source / conversation reference","text"],["messages","Full transcript (keep each message in order)","textarea",true]],
+ summaries:[["title","Summary title","text",true],["date","Conversation / event date","date"],["characters","Characters involved","text"],["summary","What happened?","textarea",true],["importantDetails","Important details to remember","textarea"],["canonChanges","Canon decisions / continuity changes","textarea"],["relationships","Relationship developments","textarea"],["source","Source chat log / reference","text"]],
  images:[["title","Image title","text",true],["category","Category","select",false,["Character portrait","Screenshot","Map","Event artwork","Reference","Other"]],["character","Related character / event","text"],["caption","Caption / notes","textarea"],["file","Choose image file","file"]]
  };
  const rows=fields[type].map(([key,label,kind,required,options])=>{
   let value=item?.[key]??"";
   if(key==="file")return `<div class="full"><label>${label}</label><input id="f-file" type="file" accept="image/*"><p class="small muted">${item?.fileName?`Current file: ${esc(item.fileName)}. Choose another to replace it.`:"Choose an image from your device."}</p></div>`;
-  let input=kind==="textarea"?`<textarea id="f-${key}" rows="3" ${required?"required":""}>${esc(value)}</textarea>`:kind==="select"?`<select id="f-${key}">${options.map(o=>`<option ${value===o?"selected":""}>${esc(o)}</option>`).join("")}</select>`:`<input id="f-${key}" type="${kind}" value="${esc(value)}" ${required?"required":""}>`;
+  let input=kind==="textarea"?`<textarea id="f-${key}" rows="${key==="messages"?12:4}" ${required?"required":""} placeholder="${key==="messages"?"Paste the full transcript here. Keep speaker names and message order intact.":key==="importantDetails"?"Facts, preferences, promises, details that must not be forgotten…":key==="canonChanges"?"What became established canon? What changed?":""}">${esc(value)}</textarea>`:kind==="select"?`<select id="f-${key}">${options.map(o=>`<option ${value===o?"selected":""}>${esc(o)}</option>`).join("")}</select>`:`<input id="f-${key}" type="${kind}" value="${esc(value)}" ${required?"required":""}>`;
   return `<div class="${kind==="textarea"?"full":""}"><label for="f-${key}">${label}${required?" *":""}</label>${input}</div>`;
  }).join("");
  $("#modalRoot").innerHTML=`<div class="modal-backdrop" id="modalBackdrop"><form class="modal" id="recordForm"><div class="panel-head"><h3>${id?"Edit":"Add"} ${titles[type]}</h3><button type="button" id="closeModal">✕</button></div><div class="formgrid">${rows}</div><p class="small muted">* Required field. Only enter details you know; unknown information can stay blank.</p><div class="row" style="margin-top:15px"><button type="button" id="cancelModal">Cancel</button><button class="primary right" type="submit">Save record</button></div></form></div>`;
@@ -185,7 +195,7 @@ function openModal(type,id=null){
 function closeModal(){$("#modalRoot").innerHTML="";}
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
 async function exportBackup(){
- const backup={app:"BTD6 Academy Database",formatVersion:1,exportedAt:now(),payload:state};
+ const backup={app:"BTD6 Academy Database",formatVersion:2,exportedAt:now(),payload:state};
  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`btd6-academy-backup-${new Date().toISOString().slice(0,10)}.json`;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);
 }
@@ -195,10 +205,13 @@ async function restoreBackup(){
  if(!confirm("Replace the current Academy database with this backup?"))return;
  try{
   const parsed=JSON.parse(await file.text());const incoming=parsed.payload||parsed;
-  const keys=["students","homework","mk","archives","images"];
-  if(!keys.every(k=>Array.isArray(incoming[k])))throw new Error("This file does not look like a valid Academy backup.");
-  if(!confirm(`Restore ${incoming.students.length} students, ${incoming.homework.length} assignments, ${incoming.mk.length} MK entries, ${incoming.archives.length} archives and ${incoming.images.length} images?`))return;
-  state={...blankState(),...incoming,version:1,updatedAt:now()};
+  const requiredKeys=["students","homework","mk","archives","images"];
+  if(!requiredKeys.every(k=>Array.isArray(incoming[k])))throw new Error("This file does not look like a valid Academy backup.");
+  // New history collections are optional in older backups, so old backups still restore safely.
+  incoming.chatLogs=Array.isArray(incoming.chatLogs)?incoming.chatLogs:[];
+  incoming.summaries=Array.isArray(incoming.summaries)?incoming.summaries:[];
+  if(!confirm(`Restore ${incoming.students.length} students, ${incoming.homework.length} assignments, ${incoming.mk.length} MK entries, ${incoming.chatLogs.length} full chats, ${incoming.summaries.length} summaries, ${incoming.archives.length} timeline entries and ${incoming.images.length} images?`))return;
+  state={...blankState(),...incoming,version:2,updatedAt:now()};
   await dbPut(state);render();alert("Backup restored successfully.");
  }catch(err){alert("Restore failed: "+err.message);}
 }
@@ -224,7 +237,7 @@ document.addEventListener("click",e=>{
  const del=e.target.closest("[data-delete]");if(del){deleteRecord(del.dataset.delete,del.dataset.id);return;}
 });
 $("#globalAdd").addEventListener("click",()=>{
- const typeByView={students:"students",homework:"homework",mk:"mk",archives:"archives",gallery:"images"};
+ const typeByView={students:"students",homework:"homework",mk:"mk",archives:"chatLogs",gallery:"images"};
  openModal(typeByView[activeView]||"students");
 });
 function migrateMKTotals(){
@@ -235,7 +248,19 @@ function migrateMKTotals(){
  return true;
 }
 async function init(){
- try{await openDB();const saved=await dbGet();state=saved||seed();const mkMigrated=migrateMKTotals();if(!saved||mkMigrated)await dbPut(state);showView("dashboard");}
+ try{
+  await openDB();
+  const saved=await dbGet();
+  state=saved||seed();
+  // Add the new history collections without overwriting any existing records.
+  let changed=false;
+  for(const key of ["students","homework","mk","archives","images","chatLogs","summaries"]){
+   if(!Array.isArray(state[key])){state[key]=[];changed=true;}
+  }
+  const mkMigrated=migrateMKTotals();
+  if(!saved||mkMigrated||changed||state.version!==2){state.version=2;await dbPut(state);}
+  showView("dashboard");
+ }
  catch(err){$("#app").innerHTML=`<section class="panel"><h3>Could not open the local database</h3><p>${esc(err.message)}</p><p class="muted">Try opening this file in a current version of Chrome. If file:// storage is blocked by your setup, run the folder through a local web server.</p></section>`;}
 }
 init();
